@@ -10,7 +10,7 @@ interface ChatWindowProps {
 }
 
 const MessageItem = React.memo(({ msg, isOwn }: { msg: Message; isOwn: boolean }) => {
-  const time = useMemo(() => 
+  const time = useMemo(() =>
     new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     [msg.created_at]
   );
@@ -83,18 +83,37 @@ export function ChatWindow({ otherUser, onBack }: ChatWindowProps) {
         setMessages(msgs || []);
 
         // Subscribe to new messages
+        // Subscribe to new messages
+        // Subscribe to new messages in realtime
         channelRef.current = supabase
-          .channel(`chat:${convId}`)
-          .on('postgres_changes', {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${convId}`
-          }, (payload) => {
-            const newMsg = payload.new as Message;
-            setMessages(prev => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]);
-          })
-          .subscribe();
+          .channel(`realtime:messages:${convId}`)
+          .on(
+            'postgres_changes',
+            {
+              event: '*', // listen to all events (INSERT/UPDATE/DELETE)
+              schema: 'public',
+              table: 'messages',
+              filter: `conversation_id=eq.${convId}`,
+            },
+            (payload) => {
+              if (payload.eventType === 'INSERT') {
+                const newMsg = payload.new as Message;
+                setMessages(prev => {
+                  if (!prev.some(m => m.id === newMsg.id)) {
+                    return [...prev, newMsg];
+                  }
+                  return prev;
+                });
+              }
+            }
+          )
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log(`Realtime subscription active for conversation ${convId}`);
+            }
+          });
+
+
 
         setLoading(false);
       } catch (error) {
@@ -113,7 +132,7 @@ export function ChatWindow({ otherUser, onBack }: ChatWindowProps) {
 
   const handleSend = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const content = newMessage.trim();
     if (!content || !conversationIdRef.current || !profile?.id || sending) return;
 
@@ -151,7 +170,7 @@ export function ChatWindow({ otherUser, onBack }: ChatWindowProps) {
     }
   }, [newMessage, profile?.id, sending]);
 
-  const messageList = useMemo(() => 
+  const messageList = useMemo(() =>
     messages.map(m => <MessageItem key={m.id} msg={m} isOwn={m.sender_id === profile?.id} />),
     [messages, profile?.id]
   );
